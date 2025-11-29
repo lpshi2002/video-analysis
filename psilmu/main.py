@@ -61,7 +61,12 @@ def smile(blendshapes):
     
     return float(score)
     
-# head pose detection
+# head pose detection 
+DOWN_TH = -0.25    # 이 값보다 작아지면 '아래로 숙였다'고 봄 일단 테스트하면서 세팅함
+UP_TH   = -0.15    # 이 값 이상으로 다시 올라오면 '원위치'로 봄
+MAX_NOD_FRAMES = 240  # 30프레임 안(대충 1초 안)에 복귀하면 진짜 끄덕임
+
+# 지금은 단순히 1초이내 고개의 위아래 움직임으로만 판단하는데 고개를 끄덕인건지 그냥 고개를 숙인건지 구분이 안됨
 def head_pose_matrix(result):
     if not result.facial_transformation_matrixes:
         return None
@@ -73,29 +78,28 @@ def head_pose_matrix(result):
     return pitch, yaw, roll
 
 # eye contact detection
-def eye_contact(blendshapes):
+def eye_contact(blendshapes, max_dev=0.8):
     m = get_blendshape_map(blendshapes)
 
-    # 각 눈에 대해 "정면에서 벗어난 정도" 계산
-    # in/out/up/down이 크면 클수록 정면에서 벗어난 것
-    left_dev = (
-        m.get("eyeLookInLeft", 0.0)
-        + m.get("eyeLookOutLeft", 0.0)
-        + m.get("eyeLookUpLeft", 0.0)
-        + m.get("eyeLookDownLeft", 0.0)
-    ) / 4.0
+    # 왼쪽 눈 방향 벡터
+    lh = m.get("eyeLookOutLeft", 0.0) - m.get("eyeLookInLeft", 0.0)
+    lv = m.get("eyeLookUpLeft", 0.0)  - m.get("eyeLookDownLeft", 0.0)
+    left_mag = np.sqrt(lh * lh + lv * lv)
 
-    right_dev = (
-        m.get("eyeLookInRight", 0.0)
-        + m.get("eyeLookOutRight", 0.0)
-        + m.get("eyeLookUpRight", 0.0)
-        + m.get("eyeLookDownRight", 0.0)
-    ) / 4.0
+    # 오른쪽 눈 방향 벡터
+    rh = m.get("eyeLookOutRight", 0.0) - m.get("eyeLookInRight", 0.0)
+    rv = m.get("eyeLookUpRight", 0.0)  - m.get("eyeLookDownRight", 0.0)
+    right_mag = np.sqrt(rh * rh + rv * rv)
 
-    dev = (left_dev + right_dev) / 2.0  # 0(정면) ~ 1(완전 옆/위/아래)
+    # 두 눈 평균 "편향 크기"
+    dev = (left_mag + right_mag) / 2.0  # 0 = 정면, 커질수록 딴 데
 
-    # "벗어난 정도"의 반대로 eye-contact 점수 만들기
-    score = 1.0 - np.clip(dev, 0.0, 1.0)
+    # dev가 max_dev 이상이면 "완전 딴 데 본다"로 보고 1로 saturate
+    dev_norm = np.clip(dev / max_dev, 0.0, 1.0)
+
+    # eye-contact 점수 = 1 - deviation
+    score = 1.0 - dev_norm
+    
     return float(score)
 
 # web
@@ -124,6 +128,9 @@ async def websocket_endpoint(websocket: WebSocket):
     
     frame_id = 0
 
+    nod_state = "IDLE"
+    nod_count = 0
+    nod_start_frame = 0
     try:
         while True:
             # 1. 데이터 수신
@@ -151,7 +158,18 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 # 프레임 타임스탬프 계산 (ms 단위)
                 frame_id += 1
-    
+
+                # --- 인터뷰 통계용 누적 변수 ---
+                face_frame_count = 0          # 얼굴이 잡힌 프레임 수
+                smile_sum = 0.0               # 미소 점수 총합
+                eye_on_frames = 0             # '아이컨택'이라고 간주한 프레임 수
+
+                SMILE_TH = 0.15               # 미소 기준
+                EYE_TH = 0.6                  # 아이컨택 기준
+                            
+                if frame_id % 2 != 0:
+                    continue  # 이 프레임은 추론 안 하고 다음으로
+                
                 # 4. 추론 실행
                 detection_result = detector.detect_for_video(mp_image,frame_id)
 
@@ -165,9 +183,32 @@ async def websocket_endpoint(websocket: WebSocket):
                     smile_score = smile(blend)# 미소 점수
                     pitch, yaw, roll = head_pose_matrix(detection_result)  # 머리 자세
                     eye_contact_score = eye_contact(blend)  # 아이 컨택트 점수
+
+                    # 인터뷰 통계 누적
+                    face_frame_count += 1
+                    smile_sum += smile_score  # 0~1 -> 0~100 스케일로 누적
                     
-                    # 결과 출력
-                    print(f"[Face Detected] Smile: {smile_score:.2f}, Head Pose (Pitch: {pitch:.2f}, Yaw: {yaw:.2f}, Roll: {roll:.2f}), Eye Contact: {eye_contact_score:.2f}")
+                    if eye_contact_score > EYE_TH:
+                        eye_on_frames += 1
+                    
+                    if nod_state == "IDLE":
+                        # 기준보다 충분히 아래로(고개 숙임)
+                        if pitch < DOWN_TH:
+                            nod_state = "DOWN"
+                            nod_start_frame = frame_id
+
+                    elif nod_state == "DOWN":
+                        # 다시 위로 올라와서 거의 기본자세 근처로 복귀
+                        if pitch > UP_TH:
+                            # 너무 느린 움직임은 그냥 '자세 바꿈'으로 보고 버림
+                            if frame_id - nod_start_frame <= MAX_NOD_FRAMES:
+                                nod_count += 1
+                                print(f"👆 Nod detected! total={nod_count}")
+                            nod_state = "IDLE"
+                    
+                    if frame_id % 10 == 0:
+                        # 결과 출력 pitch 위아래로 0.3 eye contact > 0.6
+                        print(f"[Face Detected] Smile: {smile_score:.2f}, Head Pose (Pitch: {pitch:.2f}, Yaw: {yaw:.2f}, Roll: {roll:.2f}), Eye Contact: {eye_contact_score:.2f}")
                     
                 else:
                     print("[No Face] Waiting for user...")
@@ -176,6 +217,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 print(f"Error processing frame: {e}")
 
     except WebSocketDisconnect:
+        avg_smile = smile_sum / face_frame_count * 100
+        eye_ratio = eye_on_frames / face_frame_count
+        
+        print(f">>> Interview Summary: Average Smile Score: {avg_smile:.2f}, Eye Contact Ratio: {eye_ratio:.2f}, Total Nods: {nod_count}")
         print(">>> Client Disconnected")
     except Exception as e:
         print(f">>> Connection Error: {e}")

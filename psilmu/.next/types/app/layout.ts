@@ -1,4 +1,4 @@
-// File: C:\coding\myenv\video-analysis\psimu\app\layout.tsx
+// File: C:\coding\myenv\video-analysis\psilmu\app\layout.tsx
 import * as entry from '../../../app/layout.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 
