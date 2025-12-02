@@ -203,7 +203,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             # 너무 느린 움직임은 그냥 '자세 바꿈'으로 보고 버림
                             if frame_id - nod_start_frame <= MAX_NOD_FRAMES:
                                 nod_count += 1
-                                print(f"👆 Nod detected! total={nod_count}")
+                                print(f"Nod detected! total={nod_count}")
                             nod_state = "IDLE"
                     
                     if frame_id % 10 == 0:
