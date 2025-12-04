@@ -154,7 +154,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 print(f"Error processing frame: {e}")
 
     except WebSocketDisconnect:
-        # >>> 여기서 face.py의 VIDEO SUMMARY 포맷 그대로 사용 <<<
         if face_frame_count > 0:
             avg_smile_0_1 = smile_sum / face_frame_count
             avg_eye_0_1 = eye_sum / face_frame_count
