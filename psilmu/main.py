@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 
 # face.py 에 있는 분석 함수들 import
-import face1 as face  # 같은 디렉토리에 face.py가 있어야 함
+import face  # 같은 디렉토리에 face.py가 있어야 함
 
 # 1. FastAPI 앱 설정
 app = FastAPI()
