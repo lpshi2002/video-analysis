@@ -170,6 +170,9 @@ async def websocket_endpoint(websocket: WebSocket):
             print(f"EyeContact ratio (> {EYE_TH}): {eye_ratio * 100:.1f}%")
             print(f"Nod Count: {nod_count}")
             print(f"LeanForward Count: {lean_forward_count}")
+            print(f"z-normalized Smile: {(avg_smile_0_100 - 31.09) / 16.50:.2f}")
+            print(f"z-normalized EyeContact: {(avg_eye_0_100 - 50.21) / 6.17:.2f}")
+            print(f"z-normalized Eye ratio: {(eye_ratio - .8346) / .1990:.2f}")
         else:
             print("No face detected in this session.")
 

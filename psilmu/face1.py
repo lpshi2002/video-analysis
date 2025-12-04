@@ -458,6 +458,10 @@ def process_video(video_path: str):
         print(f"EyeContact ratio (> {EYE_TH}): {eye_ratio * 100:.1f}%")
         print(f"Nod Count: {nod_count}")
         print(f"LeanForward Count: {lean_forward_count}")
+        print(f"\nZ-Normalized Scores:")
+        print(f"  Smile:      {(avg_smile_0_100 - 31.09) / 16.50:.2f}")
+        print(f"  EyeContact: {(avg_eye_0_100 - 50.21) / 6.17:.2f}")
+        print(f"  Eye ratio:  {(eye_ratio - 0.8346) / 0.1990:.2f}")
         return avg_smile_0_100, avg_eye_0_100, eye_ratio
     else:
         print("No face detected in this video.")
